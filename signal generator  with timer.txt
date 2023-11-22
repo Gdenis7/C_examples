@@ -1,0 +1,310 @@
+/*
+*	PWM_GENERATOR.c
+*
+* Created: 01.11.2019 1:42:41
+*	Author: admin
+*/
+
+#include <inttypes.h> #include <avr/io.h> #include <avr/interrupt.h> #include <avr/sleep.h> #include <util/delay.h> #include <avr/eeprom.h>
+
+#define BAUD 9600
+#define MYUBRR F_CPU/16/BAUD-1 uint16_t frequency, time_delay;
+void USARTInit(unsigned int ubrr) {
+// нормальный асинхронный двунаправленный режим работы
+// UBRR = f / (16 * band)
+// Установка скорости
+UBRRH = (unsigned char)(ubrr>>8); UBRRL = (unsigned char)(ubrr);
+
+UCSRA = 0;
+
+UCSRB = (1<<RXCIE)|(1<<RXEN)|(1<<TXEN);
+UCSRC = 1<<URSEL | 1<<USBS | 1<<UCSZ0 | 1<<UCSZ1;
+}
+
+// Получение байта
+char USARTReceiveChar(void) {
+// Устанавливается, когда регистр свободен
+while(!(UCSRA & (1<<RXC)));
+return UDR;
+}
+
+// Отправка строки
+void USARTTransmitString(char str[]) { register char i = 0;
+while(str[i]) { USARTTransmitChar(str[i++]);
+}
+}
+
+// Отправка бита
+void USARTTransmitChar(char c) {
+// Устанавливается, когда регистр свободен
+while(!( UCSRA & (1<<UDRE))); UDR = c;
+}
+// Отправка строки
+ 
+void USARTTransmitStringLn(char str[]) { USARTTransmitString(str); USARTTransmitChar((char)13); USARTTransmitChar((char)10);
+}
+
+//Вывод текста в терминал
+void USARTInitScreen() {
+USARTTransmitStringLn("Choose"); USARTTransmitStringLn("Frequency:"); USARTTransmitStringLn("1- 75Hz"); USARTTransmitStringLn("2- 200HZ"); USARTTransmitStringLn("Delay:"); USARTTransmitStringLn("3- 500us"); USARTTransmitStringLn("4- 2ms");
+}
+//Инициалиазция начальных значений переменной
+void initVars()
+{
+//EEPROM
+}
+ 
+frequency = 75;
+time_delay = 2000;
+frequency = eeprom_read_word((uint16_t*)46); //чтение данных из EEPROM
+time_delay = eeprom_read_word((uint16_t*)50); //чтение данных из
+ 
+void initIO()
+{
+DDRA = 0xff; // PWM0-3 output ports
+PORTC |= (1 << PC3) | (1 << PC4); // PC3 - TIME, PC4 - FREQUENCY
+input ports
+PORTD |= (1 << PD0); // TXD
+}
+
+void initPWM0()
+{
+PORTA &= ~(1 << PA0);
+TCCR0 |= (1 << WGM00) | (1 << WGM01) | (1 << CS02) | (1<< CS00);
+//режим fast PWM mode ((1<<WGM01)|(1<<WGM00)); (1 <<CS02) | (1<<CS00) - N=1024
+TIMSK |= (1 << OCIE0) | (1 << TOIE0); // вектор прерываний
+if (frequency == 75){
+TCNT0 = 152; // начало отсчета
+OCR0 = 178; // скважность = 4
+} else if(frequency == 200) { TCNT0 = 217; // начало отсчета OCR0 = 227; // скважность = 4
+}
+
+}
+
+void dropPWM0()
+{
+TCCR0 = 0x00; TCNT0 = 0;
+OCR0 = 0;
+//PORTA &= ~(1 << PA0);
+}
+
+ISR(TIMER0_OVF_vect)
+{
+PORTA |= (1 << PA0);
+if (frequency == 75){
+TCNT0 = 152; // начало отсчета
+} else if (frequency == 200) {
+ 
+TCNT0 = 217; // начало отсчета
+}
+}
+
+ISR(TIMER0_COMP_vect)
+{
+PORTA &= ~(1 << PA0);
+}
+
+void initPWM1()
+{
+PORTA &= ~(1 << PA1);
+TCCR1A |= (1 << WGM10); // Fast PWM, 8bit, N=1024, using OCR1A
+TCCR1B |= (1 << WGM12) | (1 << CS12) | (1 << CS10); TIMSK |= (1 << TOIE1) | (1 << OCIE1A);
+//PORTA ^= (1 << PA1);
+if (frequency == 75){
+TCNT1 = 151; // начало отсчета
+OCR1A = 178; // скважность = 4
+} else if (frequency == 200) { TCNT1 = 216; // начало отсчета OCR1A = 227; // скважность = 4
+}
+}
+
+void dropPWM1()
+{
+TCCR1A = 0;
+TCCR1B = 0;
+TCNT1 = 0;
+}
+
+ISR(TIMER1_OVF_vect)
+{
+PORTA |= (1 << PA1);
+if (frequency == 75){
+TCNT1 = 151; // начало отсчета
+} else if(frequency == 200) { TCNT1 = 216; // начало отсчета
+}
+}
+
+ISR(TIMER1_COMPA_vect)
+{
+PORTA &= ~(1 << PA1); // СБрос значение порта в ноль
+}
+
+void initPWM2()
+{
+PORTA &= ~(1 << PA2);
+TCCR2 |= (1 << WGM20) | (1 << WGM21) | (1 << CS22) | (1<< CS21) | (1<< CS20);
+TIMSK |= (1 << TOIE2) | (1 << OCIE2);
+//PORTA ^= (1 << PA1);
+if (frequency == 75){
+TCNT2 = 152; // начало отсчета
+OCR2 = 179; // скважность = 4
+} else if (frequency == 200) { TCNT2 = 217; // начало отсчета OCR2 = 228; // скважность = 4
+}
+}
+void dropPWM2()
+{
+ 
+TCCR2 = 0;
+TCNT2 = 0;
+}
+
+ISR(TIMER2_OVF_vect)
+{
+PORTA |= (1 << PA2);
+if (frequency == 75){
+TCNT2 = 152; // начало отсчета
+} else if(frequency == 200) { TCNT2 = 217; // начало отсчета
+}
+}
+
+ISR(TIMER2_COMP_vect)
+{
+PORTA &= ~(1 << PA2);
+}
+
+void SPI_Init_Master(void)
+{
+DDRB |=(1<<PB4)|(1<<PB5)|(1<<PB7); //Настроить выводы MOSI,SS,SCK на выход
+DDRB &=~(1<<PB6);//Настроить вывод MISO на вход
+PORTB|=(1<<PB4); //Установить "1" на линии SS
+
+SPCR = 0; //Обнулить регистр SPCR
+SPSR = 0; //Обнулить регистр SPSR
+
+SPCR |= (1<<MSTR)|(1<<SPR0); //Режим мастер, F=Fosc/16
+SPSR |=(1<<SPI2X); //F=Fosc/8
+
+SPCR |=(1<<SPE);//Включить SPI
+}
+
+void SPI_Send_byte(char data)
+{
+PORTB &=~(1<<PB4); //Установить "0" на линии SS
+SPDR = data; //Отправить байт
+while(!(SPSR&(1<<SPIF))) ; //Дождаться окончания передачи
+PORTB |=(1<<PB4); //Установить "1" на линии SS
+}
+
+ISR(USART_RXC_vect)
+{
+sei(); //Разрешение прерываний
+char byte = UDR;
+USARTTransmitStringLn(" OK"); // Ответ пользователю
+if (byte == '1') { dropPWM0();
+dropPWM1(); // СБрос Шим сигналов
+dropPWM2(); frequency = 75;
+eeprom_write_word((uint16_t*)46, frequency); // Запись нового значения в память
+SPI_Send_byte('1'); // отправка нового значения на МК2
+_delay_ms(1);
+SPI_Send_byte('6'); // отправка сообщения о запуске ШИМ сигналов на МК2
+_delay_ms(20.2);
+initAllPWM(); // Инициализация ШИМ сигналов на МК1
+} else if (byte == '2') { dropPWM0();
+dropPWM1(); // СБрос Шим сигналов
+dropPWM2();
+ 
+frequency = 200;
+eeprom_write_word((uint16_t*)46, frequency); // Запись нового значения в память
+SPI_Send_byte('2'); // отправка нового значения на МК2
+_delay_ms(1);
+SPI_Send_byte('6'); // отправка сообщения о запуске ШИМ сигналов на МК2
+_delay_ms(20.2);
+initAllPWM(); // Инициализация ШИМ сигналов на МК1
+} else if (byte == '3') { dropPWM0();
+dropPWM1(); // СБрос Шим сигналов
+dropPWM2(); time_delay = 500;
+eeprom_write_word((uint16_t*)50, time_delay); SPI_Send_byte('3');
+_delay_ms(1); SPI_Send_byte('6');
+_delay_ms(20.2); initAllPWM();
+} else if (byte == '4') { dropPWM0();
+dropPWM1(); // СБрос Шим сигналов
+dropPWM2(); time_delay = 2000;
+eeprom_write_word((uint16_t*)50, time_delay); SPI_Send_byte('4');
+_delay_ms(1); SPI_Send_byte('6');
+_delay_ms(20.2); initAllPWM();
+}
+}
+
+void initAllPWM()
+{
+if (time_delay == 500) { initPWM0();
+_delay_ms(0.494); initPWM1();
+_delay_ms(0.494); initPWM2();
+} else if (time_delay == 2000) { initPWM0();
+_delay_ms(1.994); initPWM1();
+_delay_ms(1.994); initPWM2();
+}
+}
+int main()
+{
+initVars(); // Иниц переменных
+SPI_Init_Master(); // Иниц SPI
+_delay_ms(4.5);
+initIO(); // Иниц портов ввода/вывода
+if (frequency == 75) {
+SPI_Send_byte('1'); // отправка значения на МК2
+} else if (frequency == 200) {
+SPI_Send_byte('2'); // отправка значения на МК2
+}
+_delay_ms(4);
+if (time_delay == 500) {
+SPI_Send_byte('3'); // отправка значения на МК2
+ 
+} else if (time_delay == 2000) { SPI_Send_byte('4'); // отправка значения на МК2
+}
+initAllPWM(); // Запуск ШИМ на Мк1
+sei();
+USARTInit(MYUBRR); // Иниц USART
+USARTInitScreen(); // Вывод сообщений на экран
+while (1)
+{
+
+//кнопки
+ 
+if ((PINC & (1 << PC4)) == 0){ // Опрос нажатия кнопки
+SPI_Send_byte('5'); // Сообщение о том, что нажата кнопка
+_delay_ms(5); dropPWM0();
+dropPWM1(); // Сброс ШИМов
+dropPWM2();
+while ((PINC & (1 << PC4)) == 0) {} // Ожидание отпускания
+
+if (frequency == 75){
+SPI_Send_byte('2'); // отправка значения на МК2
+frequency = 200;
+eeprom_write_word((uint16_t*)46, frequency); // Сохранение
+ 
+//значения в память
+} else if (frequency == 200) {
+SPI_Send_byte('1'); // отправка значения на МК2
+frequency = 75;
+eeprom_write_word((uint16_t*)46, frequency); // Сохранение значения в память
+}
+SPI_Send_byte('6'); // Отправка сообщения об иниц ШИМ на МК2
+_delay_ms(20);
+initAllPWM(); // Иниц ШИМ МК1
+}
+
+if ((PINC & (1 << PC3)) == 0){
+SPI_Send_byte('5');
+_delay_ms(5); dropPWM0(); dropPWM1(); dropPWM2();
+while ((PINC & (1 << PC3)) == 0) {}
+if (time_delay == 500){ SPI_Send_byte('4'); time_delay = 2000;
+eeprom_write_word((uint16_t*)50, time_delay);
+} else if (time_delay == 2000) { SPI_Send_byte('3'); time_delay = 500;
+eeprom_write_word((uint16_t*)50, time_delay);
+}
+SPI_Send_byte('6');
+_delay_ms(20); initAllPWM();
+}
+}
+return 0;
+}
